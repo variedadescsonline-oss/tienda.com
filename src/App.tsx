@@ -29,12 +29,14 @@ import { ProductModal } from './components/ProductModal';
 import { CartDrawer } from './components/CartDrawer';
 import { FavoritesDrawer } from './components/FavoritesDrawer';
 import { WhatsAppConfigModal } from './components/WhatsAppConfigModal';
-import { OrdersModal } from './components/OrdersModal';
+import { CustomerOrdersModal } from './components/CustomerOrdersModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { PhoneAppShell } from './components/PhoneAppShell';
 import { BottomTabBar } from './components/BottomTabBar';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const CART_STORAGE_KEY = 'variedadescs_cart';
 const FAVORITES_STORAGE_KEY = 'variedadescs_favorites';
@@ -96,11 +98,38 @@ export default function App() {
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isDesktopStandalone, setIsDesktopStandalone] = useState<boolean>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const isPinned = localStorage.getItem('variedadescs_desktop_admin_only') === 'true';
+      return (
+        isPinned ||
+        params.get('admin') === 'true' ||
+        params.get('pos') === 'true' ||
+        window.location.hash === '#admin'
+      );
+    } catch {
+      return false;
+    }
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isMobileScannerOpen, setIsMobileScannerOpen] = useState(false);
   const [unregisteredBarcodeScanned, setUnregisteredBarcodeScanned] = useState<string | null>(null);
   const [adminInitialBarcode, setAdminInitialBarcode] = useState<string | null>(null);
+
+  // Automatically activate Admin on PC if configured or standalone requested
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (user && isDesktopStandalone) {
+        setIsAdminPanelOpen(true);
+        setIsAdminLoginOpen(false);
+      } else if (!user && isDesktopStandalone) {
+        setIsAdminLoginOpen(true);
+      }
+    });
+    return () => unsubAuth();
+  }, [isDesktopStandalone]);
 
   // Real-time Firestore Subscriptions
   useEffect(() => {
@@ -160,7 +189,15 @@ export default function App() {
     const checkUrlForAdmin = () => {
       try {
         const params = new URLSearchParams(window.location.search);
-        if (params.get('admin') === 'true' || params.has('admin') || window.location.hash === '#admin') {
+        const isPinned = localStorage.getItem('variedadescs_desktop_admin_only') === 'true';
+        const hasAdminParam =
+          params.get('admin') === 'true' ||
+          params.has('admin') ||
+          params.get('pos') === 'true' ||
+          window.location.hash === '#admin';
+
+        if (isPinned || hasAdminParam) {
+          setIsDesktopStandalone(true);
           setIsAdminLoginOpen(true);
         }
       } catch (err) {
@@ -498,11 +535,12 @@ export default function App() {
           onSaveNumber={handleSavePhone}
         />
 
-        <OrdersModal
+        <CustomerOrdersModal
           isOpen={isOrdersOpen}
           onClose={() => setIsOrdersOpen(false)}
-          orders={orders}
-          loading={isOrdersLoading}
+          allOrders={orders}
+          whatsAppNumber={whatsAppNumber}
+          onOpenAdminLogin={() => setIsAdminLoginOpen(true)}
         />
 
         {/* Hidden Admin Login Modal */}
@@ -533,6 +571,15 @@ export default function App() {
             settings={storeSettings}
             initialBarcodeForProduct={adminInitialBarcode}
             onClearInitialBarcode={() => setAdminInitialBarcode(null)}
+            orders={orders}
+            isStandalone={isDesktopStandalone}
+            onExitStandalone={() => {
+              setIsDesktopStandalone(false);
+              setIsAdminPanelOpen(false);
+              try {
+                localStorage.setItem('variedadescs_desktop_admin_only', 'false');
+              } catch {}
+            }}
             onUpdateSettings={(newSettings) => {
               setStoreSettings((prev) => ({ ...prev, ...newSettings }));
             }}

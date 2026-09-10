@@ -20,6 +20,7 @@ import {
   FirestoreOrder,
   StoreSettings,
   Sale,
+  SaleItem,
   Expense,
 } from '../types';
 import { PRODUCTS as DEFAULT_PRODUCTS } from '../data/products';
@@ -320,6 +321,52 @@ export async function recordSaleInFirestore(
   }
 
   return docRef.id;
+}
+
+// Confirm an online customer order as a verified sale
+export async function confirmOrderSale(
+  order: FirestoreOrder,
+  exchangeRate: number
+): Promise<void> {
+  // 1. Update order status to 'completado'
+  await updateOrderStatus(order.id, 'completado');
+
+  // 2. Deduct inventory and record in sales collection
+  const saleItems: SaleItem[] = order.items.map((it) => ({
+    productId: it.productId,
+    name: it.productName,
+    priceUSD: it.price,
+    priceNIO: it.price * exchangeRate,
+    quantity: it.quantity,
+    selectedSize: it.selectedSize,
+    selectedColor: it.selectedColor,
+    barcode: it.barcode,
+    image: it.image,
+  }));
+
+  const totalUSD = order.total;
+  const totalNIO = order.totalNIO || totalUSD * exchangeRate;
+
+  const safePaymentMethod: Sale['paymentMethod'] =
+    order.customer.paymentMethod === 'Efectivo'
+      ? 'Efectivo'
+      : order.customer.paymentMethod === 'Pago Móvil'
+      ? 'Pago Móvil'
+      : 'Transferencia';
+
+  await recordSaleInFirestore({
+    saleCode: order.orderCode ? order.orderCode.replace('VCS-', 'VTA-') : `VTA-${Math.floor(1000 + Math.random() * 9000)}`,
+    customerName: order.customer.name || 'Cliente Online',
+    customerPhone: order.customer.phone || '',
+    items: saleItems,
+    totalUSD,
+    totalNIO,
+    exchangeRate,
+    paymentMethod: safePaymentMethod,
+    paymentCurrency: 'NIO',
+    notes: `Venta confirmada desde pedido #${order.orderCode} (${order.customer.city || 'Envío'})`,
+    date: new Date().toISOString().split('T')[0],
+  });
 }
 
 // Subscribe to Sales

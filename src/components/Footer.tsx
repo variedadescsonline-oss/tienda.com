@@ -4,7 +4,7 @@ import { TikTokIcon } from './TikTokIcon';
 import { OFFICIAL_LINKS } from '../data/socialLinks';
 
 interface FooterProps {
-  onOpenWhatsAppConfig: () => void;
+  onOpenWhatsAppConfig?: () => void;
   whatsAppNumber: string;
   onOpenOrders?: () => void;
   ordersCount?: number;
@@ -104,13 +104,15 @@ export const Footer: React.FC<FooterProps> = ({
                 <span>Pedidos ({ordersCount})</span>
               </button>
             )}
-            <button
-              onClick={onOpenWhatsAppConfig}
-              className="text-[#ce5d45] hover:underline font-bold inline-flex items-center gap-1"
+            <a
+              href={directWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#128C7E] hover:underline font-bold inline-flex items-center gap-1"
             >
               <Phone className="w-3.5 h-3.5" />
               <span>WhatsApp: +{cleanPhone}</span>
-            </button>
+            </a>
           </div>
 
           {/* Scroll to top */}

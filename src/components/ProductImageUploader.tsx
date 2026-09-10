@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Image as ImageIcon, Upload, Trash2, Link as LinkIcon, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Camera, Image as ImageIcon, Upload, Trash2, Link as LinkIcon, RefreshCw, CheckCircle2, AlertCircle, Wand2, Sparkles, Sliders } from 'lucide-react';
 import { compressImageFile } from '../utils/imageCompressor';
+import { autoEnhanceProductPhoto } from '../utils/autoPhotoEnhancer';
+import { ProductPhotoEditorModal } from './ProductPhotoEditorModal';
 
 interface ProductImageUploaderProps {
   currentImage: string;
@@ -17,6 +19,8 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInputValue, setUrlInputValue] = useState(currentImage || '');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [autoEditedFeedback, setAutoEditedFeedback] = useState(false);
 
   React.useEffect(() => {
     setUrlInputValue(currentImage || '');
@@ -34,17 +38,37 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
     setErrorMessage(null);
 
     try {
-      const compressedDataUrl = await compressImageFile(file, 1000, 1000, 0.82);
-      onImageChange(compressedDataUrl);
-      setUrlInputValue(compressedDataUrl);
+      const compressedDataUrl = await compressImageFile(file, 1200, 1200, 0.88);
+      // Auto-enhance photo automatically into professional boutique studio look
+      const enhancedDataUrl = await autoEnhanceProductPhoto(compressedDataUrl);
+      onImageChange(enhancedDataUrl);
+      setUrlInputValue(enhancedDataUrl);
+      setAutoEditedFeedback(true);
+      setTimeout(() => setAutoEditedFeedback(false), 6000);
     } catch (err: any) {
-      console.error('Error compressing image:', err);
+      console.error('Error compressing or auto-enhancing image:', err);
       setErrorMessage(err.message || 'No se pudo procesar la imagen del teléfono.');
     } finally {
       setIsProcessing(false);
       // Reset inputs so the same photo can be re-selected if needed
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (galleryInputRef.current) galleryInputRef.current.value = '';
+    }
+  };
+
+  const handleTriggerAutoEnhance = async () => {
+    if (!currentImage || isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const enhancedDataUrl = await autoEnhanceProductPhoto(currentImage);
+      onImageChange(enhancedDataUrl);
+      setUrlInputValue(enhancedDataUrl);
+      setAutoEditedFeedback(true);
+      setTimeout(() => setAutoEditedFeedback(false), 6000);
+    } catch (err) {
+      console.error('Error running auto enhance:', err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -105,6 +129,14 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 sm:transition-opacity flex items-center justify-center gap-2 p-2">
               <button
                 type="button"
+                onClick={() => setIsEditorOpen(true)}
+                className="px-3 py-2 rounded-xl bg-gradient-to-r from-[#ce5d45] to-[#b54c35] text-white text-xs font-bold shadow-md hover:brightness-110 flex items-center gap-1.5 transition-all"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-amber-200" />
+                <span>Editar Profesional</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => galleryInputRef.current?.click()}
                 className="px-3 py-2 rounded-xl bg-white text-[#20201e] text-xs font-bold shadow-md hover:bg-stone-100 flex items-center gap-1.5 transition-colors"
               >
@@ -122,7 +154,16 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
             </div>
 
             {/* Mobile always visible action pills */}
-            <div className="sm:hidden absolute bottom-2 right-2 flex gap-1.5 bg-black/60 backdrop-blur-xs p-1 rounded-xl">
+            <div className="sm:hidden absolute bottom-2 right-2 flex gap-1.5 bg-black/70 backdrop-blur-xs p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setIsEditorOpen(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-[#ce5d45] text-white text-[11px] font-bold flex items-center gap-1 shadow-xs"
+                title="Editar foto profesional"
+              >
+                <Wand2 className="w-3 h-3 text-amber-200" />
+                <span>Editar</span>
+              </button>
               <button
                 type="button"
                 onClick={() => galleryInputRef.current?.click()}
@@ -190,6 +231,47 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
             <span>Galería del Teléfono</span>
           </button>
         </div>
+
+        {/* Auto-Edited Feedback Banner */}
+        {autoEditedFeedback && (
+          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 animate-pulse" />
+              <span>¡Foto editada automáticamente con acabado de estudio profesional!</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsEditorOpen(true)}
+              className="text-[11px] underline text-emerald-900 font-bold hover:text-emerald-950 shrink-0"
+            >
+              Ajustar
+            </button>
+          </div>
+        )}
+
+        {/* Studio Realce Buttons when image is present */}
+        {currentImage && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleTriggerAutoEnhance}
+              disabled={isProcessing}
+              className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 text-amber-900 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+              title="Aplica automáticamente iluminación de estudio, realce de contraste y encuadre boutique"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#d89c35]" />
+              <span>Auto-Editar Solo (Estudio)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsEditorOpen(true)}
+              className="w-full py-2 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+            >
+              <Sliders className="w-3.5 h-3.5 text-stone-600" />
+              <span>Retocar Manualmente</span>
+            </button>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
@@ -261,6 +343,19 @@ export const ProductImageUploader: React.FC<ProductImageUploaderProps> = ({
           </div>
         )}
       </div>
+
+      {/* Professional Photo Editor Modal */}
+      {isEditorOpen && currentImage && (
+        <ProductPhotoEditorModal
+          isOpen={isEditorOpen}
+          initialImage={currentImage}
+          onClose={() => setIsEditorOpen(false)}
+          onSaveEnhancedImage={(enhancedUrl) => {
+            onImageChange(enhancedUrl);
+            setUrlInputValue(enhancedUrl);
+          }}
+        />
+      )}
     </div>
   );
 };

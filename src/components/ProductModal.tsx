@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { X, ShoppingBag, MessageCircle, Check, Heart, ShieldCheck, Truck, Barcode } from 'lucide-react';
+import { X, ShoppingBag, MessageCircle, Check, Heart, ShieldCheck, Truck } from 'lucide-react';
 import { Product, Currency } from '../types';
 import { formatUSD, formatNIO, usdToNio } from '../utils/currency';
-import { BarcodeRenderer } from './BarcodeRenderer';
 
 interface ProductModalProps {
   product: Product | null;
@@ -117,11 +116,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </h2>
 
             {/* Price Row */}
-            <div className="mt-3 flex items-baseline gap-3 flex-wrap">
-              <span className="text-3xl font-black text-[#20201e]">
+            <div className="mt-3 flex items-baseline gap-2.5 flex-wrap">
+              <span className="text-2xl sm:text-3xl font-black text-stone-950">
                 {currency === 'USD' ? formatUSD(product.price) : formatNIO(nioPrice)}
               </span>
-              <span className="text-base font-bold text-[#ce5d45]">
+              <span className="text-sm font-bold text-[#ce5d45]">
                 {currency === 'USD' ? formatNIO(nioPrice) : formatUSD(product.price)}
               </span>
               {product.originalPrice && (
@@ -131,25 +130,28 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     : formatNIO(nioOriginal || 0)}
                 </span>
               )}
-              <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200">
+              {product.originalPrice && product.originalPrice > product.price && (
+                <span className="text-xs bg-[#fa3e3e] text-white px-2 py-0.5 rounded font-black shadow-xs">
+                  -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}%
+                </span>
+              )}
+              <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200">
                 En stock ({product.stock ?? 10} disp.)
               </span>
             </div>
 
-            {/* Barcode Tag Preview inside modal */}
-            {product.barcode && (
-              <div className="mt-4 p-2.5 rounded-2xl bg-stone-50 border border-stone-200">
-                <BarcodeRenderer
-                  value={product.barcode}
-                  productName={product.name}
-                  priceUSD={product.price}
-                  exchangeRate={exchangeRate}
-                  height={32}
-                  width={1.2}
-                  showPrintButton={true}
-                />
-              </div>
-            )}
+            {/* Amazon / SHEIN Social Proof */}
+            <div className="mt-2 flex items-center gap-2 text-xs text-stone-500">
+              <span className="text-amber-500 font-black">★★★★★ 4.9</span>
+              <span>•</span>
+              <span className="text-stone-600 font-semibold">120+ compras verificadas</span>
+              {product.barcode && (
+                <>
+                  <span>•</span>
+                  <span className="font-mono text-[10px] text-stone-400">SKU: {product.barcode.slice(-6)}</span>
+                </>
+              )}
+            </div>
 
             <p className="mt-4 text-sm text-stone-600 leading-relaxed">
               {product.description}

@@ -34,7 +34,7 @@ export const PRODUCTS: Product[] = [
     categoryLabel: 'Vestimenta & Tendencia',
     price: 44.0,
     image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
-    badge: 'Nueva Colección',
+    badge: 'Exclusivo',
     description: 'Conjunto versátil de dos piezas en tela rib acanalada con caída fluida. Ideal para looks de día o salidas de tarde.',
     details: ['Tejido suave con caída elegante', 'Pantalón palazzo tiro alto', 'Top sin mangas de cuello redondo'],
     sizes: ['S', 'M', 'L'],

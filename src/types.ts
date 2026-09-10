@@ -74,6 +74,7 @@ export interface Sale {
   id: string;
   saleCode: string;
   customerName?: string;
+  customerPhone?: string;
   items: SaleItem[];
   totalUSD: number;
   totalNIO: number;

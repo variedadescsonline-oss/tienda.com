@@ -46,7 +46,7 @@ export const Hero: React.FC<HeroProps> = ({
               </div>
               <div className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 bg-[#ce5d45] text-white text-xs font-bold uppercase tracking-[0.18em] shadow-sm">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span id="hero-eyebrow">VariedadesCS • Tendencias 2026</span>
+                <span id="hero-eyebrow">VariedadesCS • Moda & Detalles</span>
               </div>
             </div>
 

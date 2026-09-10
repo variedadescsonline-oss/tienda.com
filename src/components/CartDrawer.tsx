@@ -107,7 +107,39 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       }
     } catch (err) {
       console.warn('Could not save to Firestore, continuing with direct WhatsApp:', err);
+      assignedCode = `VCS-${Math.floor(1000 + Math.random() * 9000)}`;
+      setLastOrderCode(assignedCode);
     } finally {
+      // Store in client's local purchase history
+      try {
+        const stored = localStorage.getItem('variedadescs_client_orders');
+        const existingOrders = stored ? JSON.parse(stored) : [];
+        const newClientOrder = {
+          orderCode: assignedCode,
+          items: items.map(i => ({
+            productId: i.product.id,
+            name: i.product.name,
+            price: i.product.price,
+            quantity: i.quantity,
+            selectedSize: i.selectedSize,
+            selectedColor: i.selectedColor,
+            image: i.product.image,
+            barcode: i.product.barcode,
+          })),
+          total: totalAmount,
+          totalNIO: totalNIO,
+          date: new Date().toISOString(),
+          customer: { ...customerInfo },
+          status: 'nuevo',
+        };
+        localStorage.setItem(
+          'variedadescs_client_orders',
+          JSON.stringify([newClientOrder, ...existingOrders].slice(0, 20))
+        );
+      } catch (storageErr) {
+        console.warn('Could not save local client order:', storageErr);
+      }
+
       setIsSubmitting(false);
     }
 
@@ -171,7 +203,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 Tu carrito está vacío
               </h3>
               <p className="text-sm text-stone-600 mt-2 max-w-xs mx-auto">
-                Explora nuestras colecciones y añade las prendas o accesorios que más te gusten.
+                Explora nuestro catálogo exclusivo y añade las prendas o accesorios que más te gusten.
               </p>
               <button
                 onClick={onClose}

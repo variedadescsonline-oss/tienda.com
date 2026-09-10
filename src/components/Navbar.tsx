@@ -12,7 +12,7 @@ interface NavbarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   whatsAppNumber: string;
-  onOpenWhatsAppConfig: () => void;
+  onOpenWhatsAppConfig?: () => void;
   ordersCount?: number;
   onOpenOrders?: () => void;
   currency?: Currency;
@@ -148,14 +148,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Phone className="w-3 h-3" />
             <span>+{cleanPhone || '50585062737'}</span>
           </a>
-          <button
-            id="config-phone-top-btn"
-            onClick={onOpenWhatsAppConfig}
-            className="text-stone-400 hover:text-stone-200 underline text-[10px] shrink-0"
-            title="Configurar número de WhatsApp para pedidos"
-          >
-            (editar)
-          </button>
         </div>
       </div>
 
@@ -460,18 +452,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="pt-2 border-t border-stone-300 flex items-center justify-between">
-            <span className="text-xs text-stone-500">
-              WhatsApp: +{cleanPhone || '50585062737'}
-            </span>
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenWhatsAppConfig();
-              }}
-              className="text-xs text-[#ce5d45] underline font-bold"
+            <a
+              href={`https://api.whatsapp.com/send/?phone=${cleanPhone || '50585062737'}&type=phone_number&app_absent=0&wame_ctl=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#128C7E] font-bold flex items-center gap-1.5"
             >
-              Configurar WhatsApp
-            </button>
+              <Phone className="w-3.5 h-3.5" />
+              <span>Atención: +{cleanPhone || '50585062737'}</span>
+            </a>
           </div>
         </div>
       )}

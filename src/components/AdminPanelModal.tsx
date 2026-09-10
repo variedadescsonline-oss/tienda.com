@@ -24,6 +24,13 @@ import {
   Scan,
   LogOut,
   Camera,
+  MessageCircle,
+  Check,
+  ExternalLink,
+  Clock,
+  AlertTriangle,
+  Eye,
+  Laptop,
 } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { signOut, User, onAuthStateChanged } from 'firebase/auth';
@@ -36,6 +43,7 @@ import {
   StoreSettings,
   SaleItem,
   Currency,
+  FirestoreOrder,
 } from '../types';
 import {
   saveProductToFirestore,
@@ -46,6 +54,8 @@ import {
   recordExpenseInFirestore,
   deleteExpenseFromFirestore,
   updateStoreSettingsInFirestore,
+  confirmOrderSale,
+  updateOrderStatus,
 } from '../services/storeService';
 import {
   formatUSD,
@@ -57,6 +67,7 @@ import {
 import { BarcodeRenderer } from './BarcodeRenderer';
 import { ProductImageUploader } from './ProductImageUploader';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { playScannerBeep } from '../utils/audioBeep';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -68,9 +79,12 @@ interface AdminPanelModalProps {
   onUpdateSettings: (newSettings: Partial<StoreSettings>) => void;
   initialBarcodeForProduct?: string | null;
   onClearInitialBarcode?: () => void;
+  orders?: FirestoreOrder[];
+  isStandalone?: boolean;
+  onExitStandalone?: () => void;
 }
 
-type TabType = 'pos' | 'products' | 'expenses' | 'finances' | 'settings';
+type TabType = 'pos' | 'orders' | 'products' | 'expenses' | 'finances' | 'settings';
 
 const CATEGORY_OPTIONS: { id: CategoryId; label: string }[] = [
   { id: 'ropa', label: 'Ropa & Moda' },
@@ -117,11 +131,58 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onUpdateSettings,
   initialBarcodeForProduct,
   onClearInitialBarcode,
+  orders = [],
+  isStandalone = false,
+  onExitStandalone,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('pos');
   const [exchangeRate, setExchangeRate] = useState<number>(
     settings.exchangeRate || DEFAULT_EXCHANGE_RATE
   );
+  const [isDesktopAdminPinned, setIsDesktopAdminPinned] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('variedadescs_desktop_admin_only') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Orders confirmation & management state
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'nuevo' | 'completado'>('all');
+  const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
+  const [confirmedSaleSuccess, setConfirmedSaleSuccess] = useState<string | null>(null);
+
+  const handleConfirmOrderSale = async (order: FirestoreOrder) => {
+    setConfirmingOrderId(order.id);
+    try {
+      await confirmOrderSale(order, exchangeRate);
+      setConfirmedSaleSuccess(`¡Venta #${order.orderCode} confirmada exitosamente! Se descontó el inventario y se registró como venta realizada.`);
+      setTimeout(() => setConfirmedSaleSuccess(null), 4000);
+    } catch (err) {
+      console.error('Error confirming order sale:', err);
+      alert('Error al confirmar la venta. Inténtalo nuevamente.');
+    } finally {
+      setConfirmingOrderId(null);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: FirestoreOrder['status']) => {
+    try {
+      await updateOrderStatus(orderId, status);
+    } catch (err) {
+      console.error('Error updating order status:', err);
+    }
+  };
+
+  const handleNotifyCustomer = (order: FirestoreOrder) => {
+    const cleanCustomerPhone = (order.customer.phone || '').replace(/\D/g, '');
+    const msg = `¡Hola ${order.customer.name}! 👋 Te confirmamos desde *VariedadesCS* que tu pedido *#${order.orderCode}* ha sido verificado y confirmado con éxito. 🎉\n\nTotal: $${order.total.toFixed(2)}${order.totalNIO ? ` (C$ ${order.totalNIO.toFixed(0)})` : ''}\nEntrega en: ${order.customer.city || ''} ${order.customer.address || ''}\n\n¡Muchas gracias por tu compra! En breve te coordinamos la entrega. ✨`;
+    const targetUrl = cleanCustomerPhone
+      ? `https://wa.me/${cleanCustomerPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/${(settings.whatsAppNumber || '50585062737').replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  };
 
   // Sync exchange rate when settings update
   useEffect(() => {
@@ -250,29 +311,23 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     posChangeNIO = usdToNio(posChangeUSD, exchangeRate);
   }
 
-  // Handle barcode quick scan / enter
-  const handleBarcodeSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const query = posBarcodeQuery.trim();
-    if (!query) return;
-
-    const matched = products.find(
-      (p) =>
-        p.barcode?.toLowerCase() === query.toLowerCase() ||
-        p.id.toLowerCase() === query.toLowerCase()
-    );
-
-    if (matched) {
-      addPosItem(matched);
-      setPosBarcodeQuery('');
-    } else {
-      alert(`No se encontró producto con código: "${query}"`);
-    }
-  };
-
   const addPosItem = (product: Product) => {
     const existingIndex = posCart.findIndex((i) => i.productId === product.id);
     const nioPrice = usdToNio(product.price, exchangeRate);
+    const currentQty = existingIndex >= 0 ? posCart[existingIndex].quantity : 0;
+    const availableStock = product.stock !== undefined ? product.stock : 10;
+    const remainingAfterAdd = availableStock - (currentQty + 1);
+
+    if (availableStock <= 0) {
+      playScannerBeep(false);
+      setScannedNotification(`⚠️ "${product.name}" sin inventario (Stock 0). Añadido con advertencia.`);
+    } else {
+      playScannerBeep(true);
+      setScannedNotification(
+        `🛒 ${product.name} escaneado. Stock restante: ${remainingAfterAdd >= 0 ? remainingAfterAdd : 0}`
+      );
+    }
+    setTimeout(() => setScannedNotification(null), 3500);
 
     if (existingIndex >= 0) {
       setPosCart((prev) =>
@@ -297,6 +352,109 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       ]);
     }
   };
+
+  // Handle barcode quick scan / enter
+  const handleBarcodeSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = posBarcodeQuery.trim();
+    if (!query) return;
+
+    const matched = products.find(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === query.toLowerCase()) ||
+        p.id.toLowerCase() === query.toLowerCase()
+    );
+
+    if (matched) {
+      addPosItem(matched);
+      setPosBarcodeQuery('');
+      setUnregisteredScannedCode(null);
+    } else {
+      playScannerBeep(false);
+      setUnregisteredScannedCode(query);
+      setScannedNotification(`Código "${query}" no registrado`);
+      setTimeout(() => setScannedNotification(null), 3500);
+    }
+  };
+
+  // Hardware barcode scanner gun listener (USB / Bluetooth / Keyboard Wedge) + F2/F4 Hotkeys
+  useEffect(() => {
+    if (!isOpen && !isStandalone) return;
+    if (activeTab !== 'pos') return;
+
+    let buffer = '';
+    let lastKeyTime = Date.now();
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Hotkey F2: open camera scanner
+      if (e.key === 'F2') {
+        e.preventDefault();
+        setScannerTarget('pos');
+        setScannerContinuous(true);
+        setIsScannerOpen(true);
+        return;
+      }
+      // Hotkey F4: reset sale
+      if (e.key === 'F4') {
+        e.preventDefault();
+        setPosCart([]);
+        setPosAmountPaid('');
+        setPosNotes('');
+        playScannerBeep(true);
+        setScannedNotification('🧹 Venta reiniciada');
+        setTimeout(() => setScannedNotification(null), 2500);
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable);
+
+      const now = Date.now();
+      const diff = now - lastKeyTime;
+      lastKeyTime = now;
+
+      // When Enter is pressed and buffer has characters
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3) {
+          const scannedCode = buffer.trim();
+          buffer = '';
+          const matched = products.find(
+            (p) =>
+              (p.barcode && p.barcode.toLowerCase() === scannedCode.toLowerCase()) ||
+              p.id.toLowerCase() === scannedCode.toLowerCase()
+          );
+          if (matched) {
+            addPosItem(matched);
+            setUnregisteredScannedCode(null);
+          } else {
+            playScannerBeep(false);
+            setUnregisteredScannedCode(scannedCode);
+            setScannedNotification(`Código "${scannedCode}" no registrado`);
+            setTimeout(() => setScannedNotification(null), 3500);
+          }
+          if (!isInput) e.preventDefault();
+        }
+        buffer = '';
+        return;
+      }
+
+      // Barcode scanner guns type within < 50ms per key
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (diff > 55 && !isInput) {
+          buffer = e.key;
+        } else {
+          buffer += e.key;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isOpen, isStandalone, activeTab, products]);
 
   const updatePosItemQty = (index: number, delta: number) => {
     setPosCart((prev) =>
@@ -635,14 +793,73 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   return (
     <div
       id="admin-panel-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-xs animate-in fade-in"
+      className={
+        isStandalone
+          ? 'fixed inset-0 z-50 flex flex-col bg-[#f7f2ea] overflow-hidden'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-xs animate-in fade-in'
+      }
     >
       <div
         id="admin-panel-container"
-        className="relative w-full max-w-6xl bg-[#f7f2ea] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-stone-300 flex flex-col h-[100dvh] sm:h-[95vh] max-h-[100dvh] sm:max-h-[95vh] overflow-hidden"
+        className={
+          isStandalone
+            ? 'relative w-full h-full bg-[#f7f2ea] flex flex-col overflow-hidden'
+            : 'relative w-full max-w-6xl bg-[#f7f2ea] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-stone-300 flex flex-col h-[100dvh] sm:h-[95vh] max-h-[100dvh] sm:max-h-[95vh] overflow-hidden'
+        }
       >
+        {/* Standalone Desktop Top Status Bar */}
+        {isStandalone && (
+          <div className="bg-[#191918] text-stone-300 px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 shrink-0">
+            <div className="flex items-center gap-2.5 font-medium">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Terminal Administrador & POS
+              </span>
+              <span className="hidden sm:inline text-stone-500">•</span>
+              <span className="hidden sm:inline text-stone-300 font-bold">Modo Computadora Activo</span>
+              <span className="hidden lg:inline-flex items-center gap-1.5 text-[10px] bg-stone-800 text-stone-300 px-2 py-0.5 rounded-md font-mono border border-stone-700">
+                <span>[F2] Cámara Escáner</span>
+                <span>•</span>
+                <span>[F4] Nueva Venta</span>
+                <span>•</span>
+                <span>Pistola USB: Lista</span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-[11px] cursor-pointer text-stone-300 hover:text-white select-none">
+                <input
+                  type="checkbox"
+                  checked={isDesktopAdminPinned}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsDesktopAdminPinned(checked);
+                    try {
+                      localStorage.setItem('variedadescs_desktop_admin_only', checked ? 'true' : 'false');
+                    } catch {}
+                  }}
+                  className="rounded accent-[#ce5d45] w-3.5 h-3.5"
+                />
+                <span className="font-semibold">Fijar solo administrador en esta PC</span>
+              </label>
+
+              {onExitStandalone && (
+                <button
+                  type="button"
+                  onClick={onExitStandalone}
+                  className="px-3 py-1 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white text-xs font-bold flex items-center gap-1.5 border border-stone-700 transition-colors shadow-2xs"
+                  title="Ver cómo los clientes ven la tienda pública"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#d89c35]" />
+                  <span>Ver Tienda de Clientes</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Top Navigation Bar */}
-        <div className="bg-[#20201e] text-white px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b border-stone-800">
+        <div className="bg-[#20201e] text-white px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#fba0c7] border border-pink-300/60 shadow-sm flex items-center justify-center shrink-0">
               <img src="/logo.jpg" alt="VariedadesCS" className="w-full h-full object-cover" />
@@ -703,9 +920,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             )}
 
             <button
-              onClick={onClose}
+              onClick={isStandalone && onExitStandalone ? onExitStandalone : onClose}
               className="w-8 h-8 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white flex items-center justify-center transition-colors"
-              title="Cerrar panel"
+              title={isStandalone ? 'Salir a la tienda de clientes' : 'Cerrar panel'}
             >
               <X className="w-4 h-4" />
             </button>
@@ -716,10 +933,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         <div className="bg-white border-b border-stone-200 px-4 sm:px-6 py-2 flex items-center gap-1.5 overflow-x-auto">
           {[
             { id: 'pos', label: 'Punto de Venta (POS)', icon: ShoppingBag, badge: posCart.length },
+            {
+              id: 'orders',
+              label: 'Pedidos & Ventas Online',
+              icon: Package,
+              badge: orders.filter((o) => o.status === 'nuevo').length,
+            },
             { id: 'products', label: 'Productos & Códigos', icon: Barcode, badge: products.length },
             { id: 'expenses', label: 'Gastos', icon: TrendingDown, badge: expenses.length },
             { id: 'finances', label: 'Balance & Finanzas', icon: DollarSign },
-            { id: 'settings', label: 'Monedas & Ajustes', icon: Sliders },
+            { id: 'settings', label: 'Monedas & WhatsApp', icon: Sliders },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -871,9 +1094,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                 <p className="font-bold text-xs text-stone-800 line-clamp-1 group-hover:text-[#ce5d45]">
                                   {product.name}
                                 </p>
-                                <span className="text-[10px] text-stone-500 block">
-                                  Stock: {product.stock ?? 10}
-                                </span>
+                                {product.stock !== undefined && product.stock <= 0 ? (
+                                  <span className="text-[10px] text-red-600 font-bold block">
+                                    Agotado (0 disp.)
+                                  </span>
+                                ) : product.stock !== undefined && product.stock <= 3 ? (
+                                  <span className="text-[10px] text-amber-600 font-bold block">
+                                    Poco stock ({product.stock} disp.)
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-emerald-700 font-medium block">
+                                    Stock: {product.stock ?? 10} disp.
+                                  </span>
+                                )}
                                 {product.barcode && (
                                   <span className="text-[9px] font-mono text-stone-400 block truncate">
                                     {product.barcode}
@@ -925,39 +1158,50 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         </p>
                       </div>
                     ) : (
-                      posCart.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between p-2 rounded-xl bg-stone-50 border border-stone-200 text-xs"
-                        >
-                          <div className="min-w-0 flex-1 pr-2">
-                            <p className="font-bold text-stone-800 truncate">{item.name}</p>
-                            <p className="text-stone-500 text-[11px]">
-                              ${item.priceUSD.toFixed(2)} / C$ {item.priceNIO.toFixed(2)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center bg-white border border-stone-300 rounded-lg">
-                              <button
-                                onClick={() => updatePosItemQty(idx, -1)}
-                                className="px-2 py-0.5 text-stone-600 font-bold hover:bg-stone-100 rounded-l-lg"
-                              >
-                                -
-                              </button>
-                              <span className="px-2 text-xs font-bold">{item.quantity}</span>
-                              <button
-                                onClick={() => updatePosItemQty(idx, 1)}
-                                className="px-2 py-0.5 text-stone-600 font-bold hover:bg-stone-100 rounded-r-lg"
-                              >
-                                +
-                              </button>
+                      posCart.map((item, idx) => {
+                        const origProd = products.find((p) => p.id === item.productId);
+                        const remainingStock = origProd && origProd.stock !== undefined ? origProd.stock - item.quantity : null;
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between p-2 rounded-xl bg-stone-50 border border-stone-200 text-xs"
+                          >
+                            <div className="min-w-0 flex-1 pr-2">
+                              <p className="font-bold text-stone-800 truncate">{item.name}</p>
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="text-stone-500">
+                                  ${item.priceUSD.toFixed(2)} / C$ {item.priceNIO.toFixed(2)}
+                                </span>
+                                {remainingStock !== null && (
+                                  <span className={remainingStock < 0 ? 'text-red-600 font-bold' : 'text-stone-500 font-medium'}>
+                                    • Quedan: {remainingStock >= 0 ? remainingStock : 0}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <span className="font-mono font-bold text-stone-900 w-16 text-right">
-                              ${(item.priceUSD * item.quantity).toFixed(2)}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center bg-white border border-stone-300 rounded-lg">
+                                <button
+                                  onClick={() => updatePosItemQty(idx, -1)}
+                                  className="px-2 py-0.5 text-stone-600 font-bold hover:bg-stone-100 rounded-l-lg"
+                                >
+                                  -
+                                </button>
+                                <span className="px-2 text-xs font-bold">{item.quantity}</span>
+                                <button
+                                  onClick={() => updatePosItemQty(idx, 1)}
+                                  className="px-2 py-0.5 text-stone-600 font-bold hover:bg-stone-100 rounded-r-lg"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <span className="font-mono font-bold text-stone-900 w-16 text-right">
+                                ${(item.priceUSD * item.quantity).toFixed(2)}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 
@@ -1132,6 +1376,333 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ======================= TAB: PEDIDOS & CONFIRMACIÓN DE VENTAS ======================= */}
+          {activeTab === 'orders' && (
+            <div className="space-y-4">
+              {/* Top Banner / Notification */}
+              {confirmedSaleSuccess && (
+                <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-emerald-900 font-bold text-xs flex items-center justify-between shadow-md animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>{confirmedSaleSuccess}</span>
+                  </div>
+                  <button
+                    onClick={() => setConfirmedSaleSuccess(null)}
+                    className="text-stone-500 hover:text-stone-800 text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Header & Filter Controls */}
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                <div className="relative flex-1 min-w-[240px]">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="Buscar por código (#VCS-...), cliente, ciudad o teléfono..."
+                    className="w-full text-xs sm:text-sm pl-9 pr-3 py-2 rounded-xl bg-stone-50 border border-stone-200 focus:outline-none focus:border-[#20201e]"
+                  />
+                </div>
+
+                {/* Status Filter Buttons */}
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                      orderStatusFilter === 'all'
+                        ? 'bg-[#20201e] text-white'
+                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                    }`}
+                  >
+                    Todos ({orders.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('nuevo')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 ${
+                      orderStatusFilter === 'nuevo'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Por Confirmar ({orders.filter((o) => o.status === 'nuevo').length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('completado')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 ${
+                      orderStatusFilter === 'completado'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Ventas Confirmadas ({orders.filter((o) => o.status === 'completado').length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Orders List */}
+              {(() => {
+                const filtered = orders.filter((o) => {
+                  const q = orderSearch.toLowerCase().trim();
+                  const matchesQuery =
+                    !q ||
+                    o.orderCode.toLowerCase().includes(q) ||
+                    (o.customer.name || '').toLowerCase().includes(q) ||
+                    (o.customer.phone || '').includes(q) ||
+                    (o.customer.city || '').toLowerCase().includes(q) ||
+                    o.items.some((it) => it.name.toLowerCase().includes(q));
+
+                  const matchesStatus =
+                    orderStatusFilter === 'all' || o.status === orderStatusFilter;
+
+                  return matchesQuery && matchesStatus;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="bg-white p-12 rounded-3xl border border-stone-200 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 text-[#ce5d45] flex items-center justify-center mx-auto border border-amber-200">
+                        <Package className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-base font-bold text-[#20201e]">No hay pedidos en esta vista</h3>
+                      <p className="text-xs text-stone-500 max-w-sm mx-auto">
+                        {orderSearch
+                          ? `No encontramos resultados para "${orderSearch}".`
+                          : 'Cuando los clientes hagan pedidos por el carrito o WhatsApp, aparecerán aquí para que confirmes la venta.'}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {filtered.map((order) => {
+                      const isCompleted = order.status === 'completado';
+                      const isConfirming = confirmingOrderId === order.id;
+                      const dateStr = order.createdAt?.toDate
+                        ? order.createdAt.toDate().toLocaleString('es-NI')
+                        : 'Fecha reciente';
+
+                      return (
+                        <div
+                          key={order.id}
+                          className={`bg-white rounded-2xl border transition-all shadow-xs p-4 sm:p-5 space-y-4 ${
+                            isCompleted
+                              ? 'border-emerald-200 bg-emerald-50/20'
+                              : 'border-stone-200 hover:border-[#20201e]'
+                          }`}
+                        >
+                          {/* Order Header */}
+                          <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-stone-100">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-base sm:text-lg font-black text-[#20201e]">
+                                  #{order.orderCode}
+                                </span>
+                                {isCompleted ? (
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Venta Confirmada</span>
+                                  </span>
+                                ) : order.status === 'en_proceso' ? (
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300 inline-flex items-center gap-1">
+                                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                                    <span>En Preparación</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-1">
+                                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                    <span>Pendiente de Confirmar</span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-stone-400">{dateStr}</span>
+                            </div>
+
+                            {/* Total Pill */}
+                            <div className="text-right">
+                              <span className="text-[10px] uppercase font-bold text-stone-400 block">
+                                Total del Pedido:
+                              </span>
+                              <span className="font-mono text-lg font-black text-[#ce5d45]">
+                                ${order.total.toFixed(2)}{' '}
+                                <span className="text-xs text-stone-600 font-bold">
+                                  / C${' '}
+                                  {(order.totalNIO || order.total * exchangeRate).toFixed(0)}
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Customer info card */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-stone-50 p-3 rounded-xl text-xs border border-stone-200">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-stone-400 block">
+                                Cliente
+                              </span>
+                              <p className="font-bold text-stone-800">
+                                {order.customer.name || 'Sin nombre'}
+                              </p>
+                              {order.customer.phone && (
+                                <p className="text-stone-600 font-mono">
+                                  +{order.customer.phone}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-stone-400 block">
+                                Entrega / Destino
+                              </span>
+                              <p className="text-stone-800">
+                                {order.customer.city || 'No especificada'}
+                              </p>
+                              {order.customer.address && (
+                                <p className="text-stone-500 truncate" title={order.customer.address}>
+                                  {order.customer.address}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-stone-400 block">
+                                Pago / Notas
+                              </span>
+                              <p className="text-stone-700 font-medium">
+                                {order.customer.paymentMethod || 'Transferencia'}
+                              </p>
+                              {order.customer.notes && (
+                                <p className="text-stone-500 italic truncate" title={order.customer.notes}>
+                                  "{order.customer.notes}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Products Table */}
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                              Prendas y Artículos a Despachar ({order.items.length}):
+                            </span>
+                            <div className="divide-y divide-stone-100 rounded-xl border border-stone-200 overflow-hidden bg-white">
+                              {order.items.map((it, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-2.5 flex items-center justify-between text-xs hover:bg-stone-50 transition-colors"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {it.image && (
+                                      <img
+                                        src={it.image}
+                                        alt={it.name}
+                                        className="w-10 h-10 rounded-lg object-cover border border-stone-200 bg-stone-100"
+                                      />
+                                    )}
+                                    <div>
+                                      <p className="font-bold text-stone-800">{it.name}</p>
+                                      <div className="flex items-center gap-2 text-[11px] text-stone-500">
+                                        {it.selectedSize && <span>Talla: <strong>{it.selectedSize}</strong></span>}
+                                        {it.selectedColor && <span>Color: <strong>{it.selectedColor}</strong></span>}
+                                        {it.barcode && (
+                                          <span className="font-mono text-stone-400 text-[10px]">
+                                            Etiqueta: {it.barcode}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-stone-500 text-[11px]">
+                                      {it.quantity} x ${it.price.toFixed(2)} =
+                                    </span>
+                                    <p className="font-mono font-bold text-stone-900">
+                                      ${(it.quantity * it.price).toFixed(2)}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Action Toolbar */}
+                          <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {/* Change status buttons */}
+                              <span className="text-[11px] text-stone-400 font-bold uppercase">
+                                Estado:
+                              </span>
+                              <select
+                                value={order.status}
+                                onChange={(e) =>
+                                  handleUpdateOrderStatus(
+                                    order.id,
+                                    e.target.value as FirestoreOrder['status']
+                                  )
+                                }
+                                className="px-2.5 py-1.5 rounded-lg bg-stone-100 border border-stone-300 text-xs font-bold text-stone-700 focus:outline-none"
+                              >
+                                <option value="nuevo">Pendiente</option>
+                                <option value="en_proceso">En Preparación</option>
+                                <option value="completado">Completado</option>
+                                <option value="cancelado">Cancelado</option>
+                              </select>
+
+                              {/* WhatsApp Contact Customer */}
+                              <button
+                                type="button"
+                                onClick={() => handleNotifyCustomer(order)}
+                                className="px-3 py-1.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white border border-[#25D366]/30 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                                title="Enviar mensaje de WhatsApp al cliente"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                <span>WhatsApp Cliente</span>
+                              </button>
+                            </div>
+
+                            {/* Main Confirm Sale Button */}
+                            <div>
+                              {!isCompleted ? (
+                                <button
+                                  type="button"
+                                  disabled={isConfirming}
+                                  onClick={() => handleConfirmOrderSale(order)}
+                                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#ce5d45] to-[#b54c35] hover:brightness-110 text-white font-bold text-xs shadow-md flex items-center gap-2 transition-all active:scale-98 disabled:opacity-50"
+                                >
+                                  {isConfirming ? (
+                                    <>
+                                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                      <span>Confirmando Venta e Inventario...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                                      <span>✅ Confirmar Venta Realizada</span>
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                  <span>Venta Registrada e Inventario Actualizado</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
