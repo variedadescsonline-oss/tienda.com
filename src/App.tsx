@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageCircle, ShoppingBag, Check } from 'lucide-react';
+import { MessageCircle, ShoppingBag, Check, Barcode, Plus, X } from 'lucide-react';
 import {
   Product,
   CartItem,
@@ -32,6 +32,9 @@ import { WhatsAppConfigModal } from './components/WhatsAppConfigModal';
 import { OrdersModal } from './components/OrdersModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
+import { PhoneAppShell } from './components/PhoneAppShell';
+import { BottomTabBar } from './components/BottomTabBar';
+import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 
 const CART_STORAGE_KEY = 'variedadescs_cart';
 const FAVORITES_STORAGE_KEY = 'variedadescs_favorites';
@@ -95,6 +98,9 @@ export default function App() {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isMobileScannerOpen, setIsMobileScannerOpen] = useState(false);
+  const [unregisteredBarcodeScanned, setUnregisteredBarcodeScanned] = useState<string | null>(null);
+  const [adminInitialBarcode, setAdminInitialBarcode] = useState<string | null>(null);
 
   // Real-time Firestore Subscriptions
   useEffect(() => {
@@ -313,178 +319,268 @@ export default function App() {
     }
   };
 
+  const scrollToTop = () => {
+    const el = document.getElementById('inicio');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleMobileScan = (scannedCode: string) => {
+    setIsMobileScannerOpen(false);
+    const clean = scannedCode.trim();
+    if (!clean) return;
+
+    // Look for product in catalog
+    const cleanLower = clean.toLowerCase();
+    const found = products.find(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === cleanLower) ||
+        p.id.toLowerCase() === cleanLower ||
+        p.name.toLowerCase().includes(cleanLower)
+    );
+
+    if (found) {
+      setSelectedProduct(found);
+      setUnregisteredBarcodeScanned(null);
+      showToast(`¡Producto encontrado: ${found.name}!`);
+    } else {
+      setUnregisteredBarcodeScanned(clean);
+      setSearchQuery(clean);
+      scrollToCatalog();
+      showToast(`Código escaneado: ${clean}`);
+    }
+  };
+
   return (
-    <div id="__page-root" className="min-h-screen paper-grain flex flex-col font-sans text-[#20201e]">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#20201e] text-white text-xs sm:text-sm font-bold px-5 py-3 rounded-full shadow-2xl border border-stone-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom duration-200">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+    <PhoneAppShell>
+      <div id="__page-root" className="min-h-full paper-grain flex flex-col font-sans text-[#20201e] pb-24 relative">
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-[#20201e] text-white text-xs sm:text-sm font-bold px-5 py-3 rounded-full shadow-2xl border border-stone-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom duration-200">
+            <Check className="w-4 h-4 text-emerald-400" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
 
-      {/* Header */}
-      <Navbar
-        cartCount={totalCartCount}
-        onOpenCart={() => setIsCartOpen(true)}
-        favorites={favorites}
-        onOpenFavorites={() => setIsFavoritesOpen(true)}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        whatsAppNumber={whatsAppNumber}
-        onOpenWhatsAppConfig={() => setIsWhatsAppConfigOpen(true)}
-        ordersCount={orders.length}
-        onOpenOrders={() => setIsOrdersOpen(true)}
-        currency={currency}
-        onToggleCurrency={handleToggleCurrency}
-        exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
-        onOpenAdmin={() => setIsAdminLoginOpen(true)}
-      />
-
-      {/* Main Content */}
-      <main className="flex-1">
-        {/* Hero */}
-        <Hero
-          whatsAppNumber={whatsAppNumber}
-          onExploreCatalog={scrollToCatalog}
-        />
-
-        {/* Product Catalog */}
-        <CatalogSection
-          products={products}
-          onSelectProduct={(p) => setSelectedProduct(p)}
-          onAddToCart={handleAddToCart}
+        {/* Header */}
+        <Navbar
+          cartCount={totalCartCount}
+          onOpenCart={() => setIsCartOpen(true)}
           favorites={favorites}
-          onToggleFavorite={handleToggleFavorite}
+          onOpenFavorites={() => setIsFavoritesOpen(true)}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          whatsAppNumber={whatsAppNumber}
+          onOpenWhatsAppConfig={() => setIsWhatsAppConfigOpen(true)}
+          ordersCount={orders.length}
+          onOpenOrders={() => setIsOrdersOpen(true)}
+          currency={currency}
+          onToggleCurrency={handleToggleCurrency}
+          exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
+          onOpenAdmin={() => setIsAdminLoginOpen(true)}
+        />
+
+        {/* Main Content */}
+        <main className="flex-1">
+          {/* Hero */}
+          <Hero
+            whatsAppNumber={whatsAppNumber}
+            onExploreCatalog={scrollToCatalog}
+          />
+
+          {/* Product Catalog */}
+          <CatalogSection
+            products={products}
+            onSelectProduct={(p) => setSelectedProduct(p)}
+            onAddToCart={handleAddToCart}
+            favorites={favorites}
+            onToggleFavorite={handleToggleFavorite}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            whatsAppNumber={whatsAppNumber}
+            currency={currency}
+            exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
+          />
+
+          {/* How to Buy */}
+          <HowToBuy />
+
+          {/* Contact Banner */}
+          <ContactBanner whatsAppNumber={whatsAppNumber} />
+        </main>
+
+        {/* Footer */}
+        <Footer
+          onOpenWhatsAppConfig={() => setIsWhatsAppConfigOpen(true)}
+          whatsAppNumber={whatsAppNumber}
+          ordersCount={orders.length}
+          onOpenOrders={() => setIsOrdersOpen(true)}
+          onOpenAdmin={() => setIsAdminLoginOpen(true)}
+        />
+
+        {/* Floating WhatsApp Chat (positioned above bottom tab bar) */}
+        <div className="fixed bottom-20 right-4 z-30">
+          <a
+            id="floating-whatsapp-btn"
+            href={floatingWhatsAppUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex items-center justify-center w-12 h-12 rounded-full bg-[#25D366] text-white shadow-xl hover:scale-105 active:scale-95 transition-all focus:outline-none ring-2 ring-white/50"
+            title="Atención directa por WhatsApp"
+          >
+            <MessageCircle className="w-6 h-6 fill-white" />
+          </a>
+        </div>
+
+        {/* Mobile Bottom Navigation Bar */}
+        <BottomTabBar
+          cartCount={totalCartCount}
+          favoritesCount={favorites.length}
+          onScrollToTop={scrollToTop}
+          onScrollToCatalog={scrollToCatalog}
+          onOpenScanner={() => setIsMobileScannerOpen(true)}
+          onOpenFavorites={() => setIsFavoritesOpen(true)}
+          onOpenCart={() => setIsCartOpen(true)}
+        />
+
+        {/* Quick Camera Barcode Scanner for Customers / Mobile */}
+        {isMobileScannerOpen && (
+          <BarcodeScannerModal
+            isOpen={isMobileScannerOpen}
+            onClose={() => setIsMobileScannerOpen(false)}
+            onScan={handleMobileScan}
+            title="Escanear Producto"
+            description="Apunta la cámara del teléfono a la etiqueta de la prenda o caja para ver detalles y precio"
+          />
+        )}
+
+        {/* Modals & Drawers */}
+        <ProductModal
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onAddToCart={handleAddToCart}
+          isFavorite={Boolean(selectedProduct && favorites.some((f) => f.id === selectedProduct.id))}
+          onToggleFavorite={handleToggleFavorite}
           whatsAppNumber={whatsAppNumber}
           currency={currency}
           exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
         />
 
-        {/* How to Buy */}
-        <HowToBuy />
+        <CartDrawer
+          isOpen={isCartOpen}
+          onClose={() => setIsCartOpen(false)}
+          items={cartItems}
+          onUpdateQuantity={handleUpdateQuantity}
+          onRemoveItem={handleRemoveItem}
+          onClearCart={handleClearCart}
+          whatsAppNumber={whatsAppNumber}
+          onOrderSaved={handleOrderSaved}
+          currency={currency}
+          exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
+        />
 
-        {/* Contact Banner */}
-        <ContactBanner whatsAppNumber={whatsAppNumber} />
-      </main>
+        <FavoritesDrawer
+          isOpen={isFavoritesOpen}
+          onClose={() => setIsFavoritesOpen(false)}
+          favorites={favorites}
+          onSelectProduct={(p) => setSelectedProduct(p)}
+          onAddToCart={handleAddToCart}
+          onRemoveFavorite={handleToggleFavorite}
+        />
 
-      {/* Footer */}
-      <Footer
-        onOpenWhatsAppConfig={() => setIsWhatsAppConfigOpen(true)}
-        whatsAppNumber={whatsAppNumber}
-        ordersCount={orders.length}
-        onOpenOrders={() => setIsOrdersOpen(true)}
-        onOpenAdmin={() => setIsAdminLoginOpen(true)}
-      />
+        <WhatsAppConfigModal
+          isOpen={isWhatsAppConfigOpen}
+          onClose={() => setIsWhatsAppConfigOpen(false)}
+          currentNumber={whatsAppNumber}
+          onSaveNumber={handleSavePhone}
+        />
 
-      {/* Floating Action Buttons */}
-      <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3">
-        {/* Floating Cart Button (shows if items in cart) */}
-        {totalCartCount > 0 && (
-          <button
-            id="floating-cart-btn"
-            onClick={() => setIsCartOpen(true)}
-            className="flex items-center gap-2 px-4 py-3 rounded-full bg-[#20201e] text-white shadow-2xl hover:scale-105 active:scale-95 transition-all text-xs font-bold border border-stone-700"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>Ver Carrito ({totalCartCount})</span>
-          </button>
+        <OrdersModal
+          isOpen={isOrdersOpen}
+          onClose={() => setIsOrdersOpen(false)}
+          orders={orders}
+          loading={isOrdersLoading}
+        />
+
+        {/* Hidden Admin Login Modal */}
+        {isAdminLoginOpen && (
+          <AdminLoginModal
+            isOpen={isAdminLoginOpen}
+            onClose={() => setIsAdminLoginOpen(false)}
+            adminEmail={storeSettings.adminEmail || 'variedadescs.online@gmail.com'}
+            expectedPin={storeSettings.adminPin || '1234'}
+            onSuccess={() => {
+              setIsAdminLoginOpen(false);
+              setIsAdminPanelOpen(true);
+            }}
+          />
         )}
 
-        {/* Floating WhatsApp Chat */}
-        <a
-          id="floating-whatsapp-btn"
-          href={floatingWhatsAppUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group flex items-center gap-2.5 p-3.5 sm:px-5 sm:py-3.5 rounded-full bg-[#25D366] text-white shadow-2xl hover:scale-105 active:scale-95 transition-all focus:outline-none"
-          title="Atención directa por WhatsApp"
-        >
-          <MessageCircle className="w-6 h-6 fill-white" />
-          <span className="hidden sm:inline font-bold text-sm tracking-wide">
-            ¿Dudas? Chatea con nosotros
-          </span>
-        </a>
+        {/* Hidden Admin Management Control Panel */}
+        {isAdminPanelOpen && (
+          <AdminPanelModal
+            isOpen={isAdminPanelOpen}
+            onClose={() => {
+              setIsAdminPanelOpen(false);
+              setAdminInitialBarcode(null);
+            }}
+            products={products}
+            sales={sales}
+            expenses={expenses}
+            settings={storeSettings}
+            initialBarcodeForProduct={adminInitialBarcode}
+            onClearInitialBarcode={() => setAdminInitialBarcode(null)}
+            onUpdateSettings={(newSettings) => {
+              setStoreSettings((prev) => ({ ...prev, ...newSettings }));
+            }}
+          />
+        )}
+
+        {/* Floating action card when an unknown factory barcode is scanned */}
+        {unregisteredBarcodeScanned && (
+          <div className="fixed bottom-24 left-4 right-4 max-w-sm mx-auto z-40 bg-[#20201e] text-white p-4 rounded-2xl shadow-2xl border border-stone-700 animate-in fade-in slide-in-from-bottom">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#ce5d45] flex items-center justify-center text-white shrink-0 shadow-xs">
+                  <Barcode className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-stone-200">Etiqueta de fábrica detectada</p>
+                  <p className="font-mono text-sm text-[#d89c35] font-black tracking-wider">
+                    {unregisteredBarcodeScanned}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUnregisteredBarcodeScanned(null)}
+                className="text-stone-400 hover:text-white p-1"
+                aria-label="Cerrar aviso"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[11px] text-stone-300 mt-2">
+              Este código de producto aún no está registrado. ¿Deseas darlo de alta usando este mismo código de su etiqueta?
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setAdminInitialBarcode(unregisteredBarcodeScanned);
+                  setUnregisteredBarcodeScanned(null);
+                  setIsAdminLoginOpen(true);
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-[#ce5d45] hover:bg-[#b54c35] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Registrar Producto con este Código</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* Modals & Drawers */}
-      <ProductModal
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
-        onAddToCart={handleAddToCart}
-        isFavorite={Boolean(selectedProduct && favorites.some((f) => f.id === selectedProduct.id))}
-        onToggleFavorite={handleToggleFavorite}
-        whatsAppNumber={whatsAppNumber}
-        currency={currency}
-        exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
-      />
-
-      <CartDrawer
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        items={cartItems}
-        onUpdateQuantity={handleUpdateQuantity}
-        onRemoveItem={handleRemoveItem}
-        onClearCart={handleClearCart}
-        whatsAppNumber={whatsAppNumber}
-        onOrderSaved={handleOrderSaved}
-        currency={currency}
-        exchangeRate={storeSettings.exchangeRate || DEFAULT_EXCHANGE_RATE}
-      />
-
-      <FavoritesDrawer
-        isOpen={isFavoritesOpen}
-        onClose={() => setIsFavoritesOpen(false)}
-        favorites={favorites}
-        onSelectProduct={(p) => setSelectedProduct(p)}
-        onAddToCart={handleAddToCart}
-        onRemoveFavorite={handleToggleFavorite}
-      />
-
-      <WhatsAppConfigModal
-        isOpen={isWhatsAppConfigOpen}
-        onClose={() => setIsWhatsAppConfigOpen(false)}
-        currentNumber={whatsAppNumber}
-        onSaveNumber={handleSavePhone}
-      />
-
-      <OrdersModal
-        isOpen={isOrdersOpen}
-        onClose={() => setIsOrdersOpen(false)}
-        orders={orders}
-        loading={isOrdersLoading}
-      />
-
-      {/* Hidden Admin Login Modal */}
-      {isAdminLoginOpen && (
-        <AdminLoginModal
-          isOpen={isAdminLoginOpen}
-          onClose={() => setIsAdminLoginOpen(false)}
-          adminEmail={storeSettings.adminEmail || 'variedadescs.online@gmail.com'}
-          expectedPin={storeSettings.adminPin || '1234'}
-          onSuccess={() => {
-            setIsAdminLoginOpen(false);
-            setIsAdminPanelOpen(true);
-          }}
-        />
-      )}
-
-      {/* Hidden Admin Management Control Panel */}
-      {isAdminPanelOpen && (
-        <AdminPanelModal
-          isOpen={isAdminPanelOpen}
-          onClose={() => setIsAdminPanelOpen(false)}
-          products={products}
-          sales={sales}
-          expenses={expenses}
-          settings={storeSettings}
-          onUpdateSettings={(newSettings) => {
-            setStoreSettings((prev) => ({ ...prev, ...newSettings }));
-          }}
-        />
-      )}
-    </div>
+    </PhoneAppShell>
   );
 }

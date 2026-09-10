@@ -1,6 +1,6 @@
 {
   "name": "VariedadesCS | Moda y detalles",
   "description": "Tienda online de moda, lencería, fragancias y accesorios con catálogo interactivo y pedidos por WhatsApp.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

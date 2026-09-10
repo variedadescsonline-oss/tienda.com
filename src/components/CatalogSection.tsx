@@ -43,11 +43,13 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
       .filter((item) => {
         const matchesCategory =
           selectedCategory === 'all' || item.category === selectedCategory;
+        const cleanQuery = searchQuery.toLowerCase().trim();
         const matchesSearch =
-          !searchQuery.trim() ||
-          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase());
+          !cleanQuery ||
+          item.name.toLowerCase().includes(cleanQuery) ||
+          item.description.toLowerCase().includes(cleanQuery) ||
+          item.categoryLabel.toLowerCase().includes(cleanQuery) ||
+          (item.barcode && item.barcode.toLowerCase().includes(cleanQuery));
         return matchesCategory && matchesSearch;
       })
       .sort((a, b) => {
@@ -124,7 +126,7 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
             <input
               id="catalog-search-input"
               type="text"
-              placeholder="Buscar por nombre o descripción..."
+              placeholder="Buscar por nombre o código de barra..."
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm rounded-full bg-white border border-stone-300 focus:outline-none focus:border-[#20201e] focus:ring-1 focus:ring-[#20201e] shadow-sm text-[#20201e]"

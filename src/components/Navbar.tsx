@@ -168,17 +168,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
-          className="flex items-center gap-3 shrink-0 group select-none cursor-pointer"
+          className="flex items-center gap-2.5 shrink-0 group select-none cursor-pointer"
           aria-label="Ir al inicio de VariedadesCS"
         >
-          <div className="w-11 h-11 rounded-2xl bg-[#20201e] text-[#f7f1e8] flex items-center justify-center font-bold text-xl shadow-md group-hover:bg-[#ce5d45] transition-colors">
-            <span className="display-font tracking-tighter">CS</span>
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl overflow-hidden shadow-sm border border-pink-300/60 bg-[#fba0c7] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <img
+              src="/logo.jpg"
+              alt="Logo VariedadesCS"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback to text initials if image ever fails to load
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </div>
           <div>
-            <span className="display-font text-2xl font-extrabold tracking-tight text-[#20201e] block leading-none">
+            <span className="display-font text-xl sm:text-2xl font-extrabold tracking-tight text-[#20201e] block leading-none">
               Variedades<span className="text-[#ce5d45]">CS</span>
             </span>
-            <span className="text-[11px] uppercase tracking-[0.2em] text-stone-600 font-bold block mt-0.5">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-stone-600 font-bold block mt-0.5">
               Moda & detalles
             </span>
           </div>

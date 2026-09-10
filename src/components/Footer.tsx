@@ -62,8 +62,12 @@ export const Footer: React.FC<FooterProps> = ({
           {/* Brand */}
           <div>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-[#20201e] text-[#f7f1e8] flex items-center justify-center font-bold text-base shadow-sm">
-                <span className="display-font">CS</span>
+              <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#fba0c7] border border-pink-300/60 shadow-sm flex items-center justify-center shrink-0">
+                <img
+                  src="/logo.jpg"
+                  alt="Logo VariedadesCS"
+                  className="w-full h-full object-cover"
+                />
               </div>
               <span
                 id="footer-brand"

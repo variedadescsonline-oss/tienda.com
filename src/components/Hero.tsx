@@ -40,9 +40,14 @@ export const Hero: React.FC<HeroProps> = ({
 
           {/* Hero Content */}
           <div className="relative z-10 max-w-2xl p-6 sm:p-12 lg:p-14 text-white">
-            <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 bg-[#ce5d45] text-white text-xs font-bold uppercase tracking-[0.18em] shadow-sm mb-4">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span id="hero-eyebrow">Nueva Colección • Tendencias 2026</span>
+            <div className="flex items-center gap-2.5 mb-4 flex-wrap">
+              <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#fba0c7] border border-pink-200/80 shadow-md shrink-0">
+                <img src="/logo.jpg" alt="VariedadesCS" className="w-full h-full object-cover" />
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 bg-[#ce5d45] text-white text-xs font-bold uppercase tracking-[0.18em] shadow-sm">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span id="hero-eyebrow">VariedadesCS • Tendencias 2026</span>
+              </div>
             </div>
 
             <h1

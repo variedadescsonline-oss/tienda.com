@@ -23,6 +23,7 @@ import {
   FileText,
   Scan,
   LogOut,
+  Camera,
 } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { signOut, User, onAuthStateChanged } from 'firebase/auth';
@@ -55,6 +56,7 @@ import {
 } from '../utils/currency';
 import { BarcodeRenderer } from './BarcodeRenderer';
 import { ProductImageUploader } from './ProductImageUploader';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -64,6 +66,8 @@ interface AdminPanelModalProps {
   expenses: Expense[];
   settings: StoreSettings;
   onUpdateSettings: (newSettings: Partial<StoreSettings>) => void;
+  initialBarcodeForProduct?: string | null;
+  onClearInitialBarcode?: () => void;
 }
 
 type TabType = 'pos' | 'products' | 'expenses' | 'finances' | 'settings';
@@ -111,6 +115,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   expenses,
   settings,
   onUpdateSettings,
+  initialBarcodeForProduct,
+  onClearInitialBarcode,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('pos');
   const [exchangeRate, setExchangeRate] = useState<number>(
@@ -196,6 +202,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [isSubmittingSale, setIsSubmittingSale] = useState(false);
   const [lastSaleReceipt, setLastSaleReceipt] = useState<Sale | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Camera Barcode Scanner State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerTarget, setScannerTarget] = useState<'pos' | 'product-form' | 'product-list' | 'new-product'>('pos');
+  const [scannerContinuous, setScannerContinuous] = useState(true);
+  const [scannerLastFeedback, setScannerLastFeedback] = useState<{
+    code: string;
+    productName?: string;
+    success: boolean;
+  } | null>(null);
+  const [scannedNotification, setScannedNotification] = useState<string | null>(null);
+  const [unregisteredScannedCode, setUnregisteredScannedCode] = useState<string | null>(null);
 
   // Expense State
   const [expenseTitle, setExpenseTitle] = useState('');
@@ -340,9 +358,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Open Product Editor
-  const openNewProductModal = () => {
-    const autoBarcode = generateBarcode();
+  // Open Product Editor (optionally with scanned factory barcode pre-filled)
+  const openNewProductModal = (prefilledBarcode?: string) => {
+    // If a factory barcode was scanned or passed, use it; otherwise allow scanning or generating
+    const codeToUse = prefilledBarcode ? prefilledBarcode.trim() : '';
     setEditingProduct(null);
     setProductForm({
       name: '',
@@ -352,7 +371,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       priceNIO: '',
       originalPriceUSD: '',
       stock: '15',
-      barcode: autoBarcode,
+      barcode: codeToUse,
       image: PRESET_IMAGES[0].url,
       description: '',
       sizes: 'S, M, L',
@@ -362,6 +381,69 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       featured: false,
     });
     setIsProductModalOpen(true);
+  };
+
+  // Auto-open product registration if a factory barcode was scanned externally
+  useEffect(() => {
+    if (initialBarcodeForProduct && isOpen) {
+      setActiveTab('products');
+      openNewProductModal(initialBarcodeForProduct);
+      if (onClearInitialBarcode) {
+        onClearInitialBarcode();
+      }
+    }
+  }, [initialBarcodeForProduct, isOpen]);
+
+  // Camera Barcode Scanner handler
+  const handleScannerResult = (scannedCode: string) => {
+    const cleanCode = scannedCode.trim();
+    if (!cleanCode) return;
+
+    if (scannerTarget === 'new-product') {
+      openNewProductModal(cleanCode);
+      setScannedNotification(`Código de fábrica capturado: ${cleanCode}`);
+      setTimeout(() => setScannedNotification(null), 3500);
+      setIsScannerOpen(false);
+      return;
+    }
+
+    if (scannerTarget === 'product-form') {
+      setProductForm((prev) => ({ ...prev, barcode: cleanCode }));
+      setScannedNotification(`Código de fábrica escaneado: ${cleanCode}`);
+      setTimeout(() => setScannedNotification(null), 3500);
+      setIsScannerOpen(false);
+    } else if (scannerTarget === 'product-list') {
+      setProdSearch(cleanCode);
+      setScannedNotification(`Buscando código: ${cleanCode}`);
+      setTimeout(() => setScannedNotification(null), 3500);
+      setIsScannerOpen(false);
+    } else if (scannerTarget === 'pos') {
+      const matched = products.find(
+        (p) =>
+          (p.barcode && p.barcode.toLowerCase() === cleanCode.toLowerCase()) ||
+          p.id.toLowerCase() === cleanCode.toLowerCase()
+      );
+
+      if (matched) {
+        addPosItem(matched);
+        setScannerLastFeedback({
+          code: cleanCode,
+          productName: matched.name,
+          success: true,
+        });
+        setUnregisteredScannedCode(null);
+        setScannedNotification(`¡Añadido al carrito: ${matched.name}!`);
+        setTimeout(() => setScannedNotification(null), 3000);
+      } else {
+        setScannerLastFeedback({
+          code: cleanCode,
+          productName: 'No registrado en inventario',
+          success: false,
+        });
+        setUnregisteredScannedCode(cleanCode);
+        setScannedNotification(`Código ${cleanCode} no registrado`);
+      }
+    }
   };
 
   const openEditProductModal = (product: Product) => {
@@ -562,8 +644,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         {/* Top Navigation Bar */}
         <div className="bg-[#20201e] text-white px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b border-stone-800">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#ce5d45] text-white flex items-center justify-center font-black shadow-sm">
-              <Package className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#fba0c7] border border-pink-300/60 shadow-sm flex items-center justify-center shrink-0">
+              <img src="/logo.jpg" alt="VariedadesCS" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -676,9 +758,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <div className="lg:col-span-7 space-y-4">
                 {/* Barcode scanner hot bar */}
                 <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs">
-                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-stone-700 uppercase tracking-wider">
-                    <Scan className="w-4 h-4 text-[#ce5d45]" />
-                    <span>Lector de Código de Barra / Búsqueda Rápida</span>
+                  <div className="flex items-center justify-between gap-2 mb-2 text-xs font-bold text-stone-700 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <Scan className="w-4 h-4 text-[#ce5d45]" />
+                      <span>Lector de Código de Barra / Terminal POS</span>
+                    </div>
+                    {scannedNotification && (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full animate-pulse">
+                        {scannedNotification}
+                      </span>
+                    )}
                   </div>
                   <form onSubmit={handleBarcodeSubmit} className="flex gap-2">
                     <div className="relative flex-1">
@@ -686,7 +775,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       <input
                         ref={barcodeInputRef}
                         type="text"
-                        placeholder="Escanea o escribe código de barra y presiona Enter..."
+                        placeholder="Escanea con cámara o escribe código..."
                         value={posBarcodeQuery}
                         onChange={(e) => setPosBarcodeQuery(e.target.value)}
                         className="w-full text-xs sm:text-sm pl-9 pr-3 py-2.5 rounded-xl bg-stone-50 border border-stone-300 focus:bg-white focus:outline-none focus:border-[#20201e]"
@@ -698,7 +787,50 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     >
                       Añadir
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannerTarget('pos');
+                        setScannerContinuous(true);
+                        setIsScannerOpen(true);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-[#ce5d45] hover:bg-[#b54c35] text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs shrink-0"
+                      title="Abrir escáner con la cámara del teléfono o laptop"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span className="hidden sm:inline">Escanear con Cámara</span>
+                      <span className="sm:hidden">Cámara</span>
+                    </button>
                   </form>
+
+                  {/* Unregistered Barcode Notice */}
+                  {unregisteredScannedCode && (
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="text-amber-900 font-medium">
+                        El código <strong className="font-mono font-bold bg-amber-100 px-1.5 py-0.5 rounded">{unregisteredScannedCode}</strong> no está en inventario.
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openNewProductModal(unregisteredScannedCode);
+                            setUnregisteredScannedCode(null);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-[#20201e] hover:bg-[#ce5d45] text-white font-bold text-xs flex items-center gap-1 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Registrar Producto con este Código</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUnregisteredScannedCode(null)}
+                          className="px-2 py-1.5 text-stone-500 hover:text-stone-800 font-bold"
+                        >
+                          Ignorar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Catalog Grid for POS */}
@@ -1019,6 +1151,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       className="w-full text-xs sm:text-sm pl-9 pr-3 py-2 rounded-xl bg-stone-50 border border-stone-200 focus:outline-none focus:border-[#20201e]"
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScannerTarget('product-list');
+                      setScannerContinuous(false);
+                      setIsScannerOpen(true);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+                    title="Escanear código de barra para buscar producto"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-[#ce5d45]" />
+                    <span className="hidden sm:inline">Escanear</span>
+                  </button>
                   <select
                     value={prodCategoryFilter}
                     onChange={(e) => setProdCategoryFilter(e.target.value)}
@@ -1033,13 +1178,27 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </select>
                 </div>
 
-                <button
-                  onClick={openNewProductModal}
-                  className="px-4 py-2.5 rounded-xl bg-[#20201e] hover:bg-[#ce5d45] text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nuevo Producto</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <button
+                    onClick={() => {
+                      setScannerTarget('new-product');
+                      setScannerContinuous(false);
+                      setIsScannerOpen(true);
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl bg-[#ce5d45] hover:bg-[#b54c35] text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    title="Escanear con la cámara del teléfono la etiqueta o caja que ya trae el producto para registrarlo"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Escanear Etiqueta de Fábrica</span>
+                  </button>
+                  <button
+                    onClick={() => openNewProductModal()}
+                    className="px-3.5 py-2.5 rounded-xl bg-[#20201e] hover:bg-stone-800 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Nuevo Producto</span>
+                  </button>
+                </div>
               </div>
 
               {/* Products Grid with Barcodes */}
@@ -1673,32 +1832,64 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 </div>
               </div>
 
-              {/* Barcode Section with Real-time generator & Print */}
-              <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-stone-700 uppercase flex items-center gap-1.5">
+              {/* Barcode Section with Real-time generator & Camera Scan */}
+              <div className="p-4 rounded-2xl bg-stone-50 border-2 border-stone-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="font-extrabold text-stone-800 text-xs sm:text-sm uppercase flex items-center gap-1.5">
                     <Barcode className="w-4 h-4 text-[#ce5d45]" />
                     <span>Código de Barra del Producto</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setProductForm({ ...productForm, barcode: generateBarcode() })
-                    }
-                    className="text-[11px] font-bold text-[#ce5d45] hover:underline"
-                  >
-                    + Generar Nuevo Código
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannerTarget('product-form');
+                        setScannerContinuous(false);
+                        setIsScannerOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-[#ce5d45] hover:bg-[#b54c35] text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                      title="Escanear con la cámara el código de barra que ya trae el producto en su etiqueta o caja"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Escanear Etiqueta</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setProductForm({ ...productForm, barcode: generateBarcode() })
+                      }
+                      className="px-2 py-1 rounded-lg text-[11px] font-bold text-stone-600 hover:text-stone-900 hover:bg-stone-200 transition-colors"
+                      title="Generar un código automático nuevo si el producto no trae código de fábrica"
+                    >
+                      + Auto-generar
+                    </button>
+                  </div>
                 </div>
 
-                <input
-                  type="text"
-                  required
-                  value={productForm.barcode}
-                  onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })}
-                  placeholder="Ej. 743100234567"
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-stone-300 font-mono text-sm focus:outline-none"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={productForm.barcode}
+                    onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })}
+                    placeholder="Escanea con la cámara o escribe el código que trae la etiqueta/caja..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white border border-stone-300 font-mono text-sm focus:outline-none focus:border-[#20201e] shadow-2xs"
+                  />
+                  <Barcode className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                </div>
+
+                {productForm.barcode ? (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      Código listo: <strong>{productForm.barcode}</strong>. Podrás usar este mismo código para buscar y cobrar el producto en el POS.
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-stone-500 leading-snug">
+                    💡 <strong>Tip:</strong> Usa el mismo código de barra que ya viene impreso en la prenda o caja. Solo presiona <strong>"Escanear Etiqueta"</strong> para apuntar con la cámara de tu teléfono.
+                  </p>
+                )}
 
                 {/* Live barcode tag preview */}
                 {productForm.barcode && (
@@ -1813,6 +2004,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Real-time Barcode Scanner Modal (Camera & Gallery File) */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={handleScannerResult}
+        title={
+          scannerTarget === 'pos'
+            ? 'Lector de Código de Barra - Terminal POS'
+            : scannerTarget === 'product-form'
+            ? 'Escanear Etiqueta que Trae el Producto'
+            : 'Buscar Producto por Código de Barra'
+        }
+        subtitle={
+          scannerTarget === 'pos'
+            ? 'Apunta la cámara a las etiquetas de los productos para agregarlos a la venta'
+            : scannerTarget === 'product-form'
+            ? 'Captura el código de barra original que ya viene impreso de fábrica'
+            : 'Escanea el código de barra para localizar el producto en inventario'
+        }
+        continuous={scannerContinuous}
+        lastScannedFeedback={scannerLastFeedback}
+      />
     </div>
   );
 };

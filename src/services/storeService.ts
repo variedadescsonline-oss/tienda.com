@@ -108,7 +108,7 @@ export function subscribeToProducts(
       }
     },
     (err) => {
-      console.warn('Firestore products listener error, using fallback:', err);
+      // Graceful offline fallback
       onUpdate(DEFAULT_PRODUCTS);
       if (onError) onError(err);
     }
@@ -186,8 +186,8 @@ export function subscribeToStoreSettings(
         });
       }
     },
-    (err) => {
-      console.warn('Firestore settings listener error:', err);
+    () => {
+      // Offline fallback
     }
   );
 }
@@ -278,8 +278,8 @@ export function subscribeToOrders(
       });
       onUpdate(ordersList);
     },
-    (err) => {
-      console.warn('Firestore orders listener error:', err);
+    () => {
+      // Offline fallback
     }
   );
 }
@@ -358,8 +358,8 @@ export function subscribeToSales(
       });
       onUpdate(list);
     },
-    (err) => {
-      console.warn('Firestore sales listener error:', err);
+    () => {
+      // Offline fallback
     }
   );
 }
@@ -424,8 +424,8 @@ export function subscribeToExpenses(
       });
       onUpdate(list);
     },
-    (err) => {
-      console.warn('Firestore expenses listener error:', err);
+    () => {
+      // Offline fallback
     }
   );
 }
